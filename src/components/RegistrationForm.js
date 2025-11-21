@@ -244,7 +244,7 @@ function RegistrationForm() {
              </div>
 
              <div className="input-group">
-                <label style={{textAlign:'center'}}>ENTER 4-DIGIT OTP</label>
+                <label style={{textAlign:'center'}}>ENTER 6-DIGIT OTP</label>
                 <input 
                     className="styled-input otp-input" 
                     required 
