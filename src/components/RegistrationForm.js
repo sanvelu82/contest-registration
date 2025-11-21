@@ -1,6 +1,9 @@
 import React, { useState, useRef } from 'react';
+import Swal from 'sweetalert2'; // 📦 Import SweetAlert2
+import { motion, AnimatePresence } from 'framer-motion'; // 📦 Import Framer Motion
+import { FaCamera, FaRedo, FaCheckCircle, FaUserGraduate, FaChalkboardTeacher } from 'react-icons/fa'; // 📦 Import Icons
 
-// 🚨 REPLACE THIS WITH YOUR GOOGLE SCRIPT URL
+// 🚨 YOUR GOOGLE SCRIPT URL
 const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz-KeGqD_BhkdkYnD9XEmykEInsP9GPwN1lFqhltBg7F_G3gKq0Mc0GoMDzSD6PWXkO/exec';
 
 function RegistrationForm() {
@@ -20,8 +23,7 @@ function RegistrationForm() {
 
   const [step, setStep] = useState(1); 
   const [otp, setOtp] = useState('');
-  const [status, setStatus] = useState('idle'); 
-  const [message, setMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -31,26 +33,30 @@ function RegistrationForm() {
   const startCamera = async () => {
     setIsCameraOpen(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
       if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err) {
-      alert("Camera Error: " + err.message);
+      Swal.fire('Camera Error', 'Could not access camera. Permission denied?', 'error');
       setIsCameraOpen(false);
     }
   };
 
   const takePhoto = () => {
-    const width = 300; const height = 300; 
+    const width = 400; const height = 400; 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = width; canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0, width, height);
-    setPhotoData(canvas.toDataURL('image/jpeg', 0.7));
     
-    const stream = video.srcObject;
-    if (stream) stream.getTracks().forEach(t => t.stop());
-    setIsCameraOpen(false);
+    if(video && canvas) {
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, width, height);
+        setPhotoData(canvas.toDataURL('image/jpeg', 0.8));
+        
+        // Stop Camera
+        const stream = video.srcObject;
+        if (stream) stream.getTracks().forEach(t => t.stop());
+        setIsCameraOpen(false);
+    }
   };
 
   const retakePhoto = () => { setPhotoData(null); startCamera(); };
@@ -58,185 +64,208 @@ function RegistrationForm() {
   // --- STEP 1: REQUEST OTP ---
   const handleRequestOTP = async (e) => {
     e.preventDefault();
-    if (!formData.facultyName) return alert("Enter Faculty Name");
-    if (!photoData) return alert("Capture Photo First");
+    
+    // Validation
+    if (!formData.facultyName || !formData.fullName || !formData.rollNo) {
+        return Swal.fire('Missing Info', 'Please fill all student details.', 'warning');
+    }
+    if (!photoData) {
+        return Swal.fire('Photo Required', 'Please capture the student photo.', 'warning');
+    }
 
-    setStatus('sending_otp');
-    setMessage('Sending OTP to Admin...');
+    setIsLoading(true);
 
     const params = new URLSearchParams();
     params.append('action', 'send_otp');
-    params.append('rollNo', formData.rollNo);
-    params.append('fullName', formData.fullName);
-    params.append('class', formData.class);
-    params.append('section', formData.section);
-    params.append('facultyName', formData.facultyName);
+    // Spread object into params
+    Object.keys(formData).forEach(key => params.append(key, formData[key]));
     
     try {
-      const res = await fetch(WEB_APP_URL + '?' + params.toString(), { method: 'POST' });
+      const res = await fetch(`${WEB_APP_URL}?${params.toString()}`, { method: 'POST' });
       const data = await res.json();
+      
       if (data.status === 'success') {
-        setStep(2); setStatus('idle'); setMessage('');
+        setStep(2);
+        const Toast = Swal.mixin({
+            toast: true, position: 'top-end', showConfirmButton: false, timer: 3000
+        });
+        Toast.fire({ icon: 'success',Tpitle: 'OTP sent to Admin!' });
       } else {
-        setStatus('error'); setMessage(data.message);
+        Swal.fire('Error', data.message || 'Could not send OTP', 'error');
       }
     } catch (err) {
-      setStatus('error'); setMessage('Network Error');
+      Swal.fire('Network Error', 'Check your connection.', 'error');
+    } finally {
+        setIsLoading(false);
     }
   };
 
   // --- STEP 2: VERIFY & REGISTER ---
   const handleFinalRegister = async (e) => {
     e.preventDefault();
-    setStatus('verifying');
+    setIsLoading(true);
     
-    // ✅ FIX: Use URLSearchParams instead of FormData
     const params = new URLSearchParams();
     params.append('action', 'register');
     params.append('otp', otp);
-    params.append('rollNo', formData.rollNo);
-    params.append('password', formData.password);
-    params.append('fullName', formData.fullName);
-    params.append('class', formData.class);
-    params.append('section', formData.section);
-    params.append('facultyName', formData.facultyName);
-    // Note: We are not sending photoBase64 to the backend to keep it fast.
+    Object.keys(formData).forEach(key => params.append(key, formData[key]));
 
     try {
       const res = await fetch(WEB_APP_URL, { 
         method: 'POST', 
-        body: params // This sends as 'application/x-www-form-urlencoded' which GAS reads perfectly
+        body: params 
       });
       
       const data = await res.json();
+      
       if (data.status === 'success') {
-        setStatus('success');
+        // 🎉 SUCCESS - SWEET ALERT 2
+        Swal.fire({
+            title: 'Registration Successful!',
+            text: `${formData.fullName} has been registered.`,
+            icon: 'success',
+            confirmButtonColor: '#4f46e5',
+            confirmButtonText: 'Add Next Student'
+        }).then(() => {
+            // Reset Form
+            setStep(1);
+            setOtp('');
+            setPhotoData(null);
+            setFormData({ ...formData, fullName: '', rollNo: '', password: '' }); // Keep faculty name, class, section
+        });
       } else {
-        setStatus('error'); setMessage(data.message);
+        Swal.fire('Verification Failed', data.message, 'error');
       }
     } catch (err) {
-      setStatus('error'); setMessage('Failed: ' + err.toString());
+        Swal.fire('Error', 'Something went wrong.', 'error');
+    } finally {
+        setIsLoading(false);
     }
   };
 
-  if (status === 'success') {
-    return (
-      <div className="ultimate-bg">
-        <div className="glass-panel" style={{textAlign: 'center'}}>
-          <h1 style={{fontSize: '3rem'}}>✅</h1>
-          <h2 className="school-line-1">Success!</h2>
-          <p>Student Registered Successfully.</p>
-          <button onClick={() => window.location.reload()} className="neon-button">Next Student</button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="ultimate-bg">
-      <div className="glass-panel animate-card-entry">
-        <div className="id-header">
-             <h1 className="school-line-1">Contest Registration</h1>
-             <h2 className="school-line-2">Faculty Portal</h2>
+      <div className="glass-panel">
+        <div className="header-content text-center">
+             <h2>Faculty Portal</h2>
+             <h1>Contest Registration</h1>
         </div>
 
+        <AnimatePresence mode="wait">
         {step === 1 ? (
-          <form onSubmit={handleRequestOTP}>
-            <div className="input-container" style={{borderLeft: '4px solid #4f46e5'}}>
-                <div className="field-wrapper">
-                  <label>Registered By (Faculty Name)</label>
-                  <input required name="facultyName" onChange={handleChange} placeholder="e.g. Mr. Sharma" />
-                </div>
+          <motion.form 
+            key="step1"
+            initial={{ x: -50, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: -50, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            onSubmit={handleRequestOTP}
+          >
+            
+            {/* Faculty & Student Info */}
+            <div className="input-group">
+                <label><FaChalkboardTeacher/> Registered By</label>
+                <input className="styled-input" required name="facultyName" value={formData.facultyName} onChange={handleChange} placeholder="Faculty Name" />
             </div>
 
-            <div className="input-container">
-                <div className="field-wrapper">
-                  <label>Student Full Name</label>
-                  <input required name="fullName" onChange={handleChange} placeholder="John Doe" />
-                </div>
+            <div className="input-group">
+                <label><FaUserGraduate/> Student Name</label>
+                <input className="styled-input" required name="fullName" value={formData.fullName} onChange={handleChange} placeholder="Student Full Name" />
             </div>
 
-            <div style={{display:'flex', gap:'10px'}}>
-              <div className="input-container">
-                <div className="field-wrapper">
-                  <label>Roll No</label>
-                  <input required name="rollNo" onChange={handleChange} placeholder="1201" />
-                </div>
+            <div style={{display:'grid', gridTemplateColumns: '1fr 1fr', gap:'15px'}}>
+              <div className="input-group">
+                <label>Roll No</label>
+                <input className="styled-input" required name="rollNo" value={formData.rollNo} onChange={handleChange} placeholder="1234" />
               </div>
-              <div className="input-container">
-                <div className="field-wrapper">
-                  <label>Password</label>
-                  <input required name="password" onChange={handleChange} placeholder="Secret" />
-                </div>
-              </div>
-            </div>
-
-            <div style={{display:'flex', gap:'10px'}}>
-               <div className="input-container">
-                <div className="field-wrapper">
-                  <label>Class</label>
-                  <input required name="class" onChange={handleChange} placeholder="10" />
-                </div>
-              </div>
-              <div className="input-container">
-                <div className="field-wrapper">
-                  <label>Section</label>
-                  <input required name="section" onChange={handleChange} placeholder="A" />
-                </div>
+              <div className="input-group">
+                <label>Password</label>
+                <input className="styled-input" required name="password" value={formData.password} onChange={handleChange} placeholder="****" />
               </div>
             </div>
 
-            {/* Camera */}
+            <div style={{display:'grid', gridTemplateColumns: '1fr 1fr', gap:'15px'}}>
+               <div className="input-group">
+                <label>Class</label>
+                <input className="styled-input" required name="class" value={formData.class} onChange={handleChange} placeholder="10" />
+              </div>
+              <div className="input-group">
+                <label>Section</label>
+                <input className="styled-input" required name="section" value={formData.section} onChange={handleChange} placeholder="A" />
+              </div>
+            </div>
+
+            {/* Camera Section */}
             <div style={{margin: '20px 0', textAlign: 'center'}}>
               {!isCameraOpen && !photoData && (
-                 <button type="button" onClick={startCamera} style={{background:'#333', color:'#fff', padding:'10px 20px', borderRadius:'8px', cursor:'pointer', border:'none'}}>
-                    📷 Open Camera
+                 <button type="button" className="btn-secondary" onClick={startCamera}>
+                    <FaCamera /> Open Camera
                  </button>
               )}
+              
               {isCameraOpen && (
-                <div>
-                  <video ref={videoRef} autoPlay playsInline style={{width:'100%', borderRadius:'12px'}} />
-                  <button type="button" onClick={takePhoto} className="neon-button" style={{width:'auto', padding:'8px 20px', marginTop:'10px'}}>Capture</button>
+                <div className="camera-container">
+                  <video ref={videoRef} autoPlay playsInline className="camera-view" />
+                  <div className="camera-overlay"></div>
+                  <button type="button" onClick={takePhoto} className="btn-primary" style={{position:'absolute', bottom:'10px', left:'50%', transform:'translateX(-50%)', width: 'auto', borderRadius: '50px'}}>
+                    Capture
+                  </button>
                 </div>
               )}
+
               {photoData && (
-                <div>
-                  <img src={photoData} alt="Captured" style={{width:'150px', borderRadius:'12px', border:'3px solid #22c55e'}} />
-                  <br/>
-                  <button type="button" onClick={retakePhoto} style={{color:'#ef4444', background:'none', border:'none', marginTop:'5px', cursor:'pointer', fontWeight:'bold'}}>Retake Photo</button>
+                <div className="photo-preview">
+                  <img src={photoData} alt="Captured" style={{width:'120px', borderRadius:'12px', border:'3px solid #4f46e5'}} />
+                  <div className="check-badge"><FaCheckCircle /></div>
+                  <button type="button" onClick={retakePhoto} style={{display:'block', margin:'10px auto', background:'none', border:'none', color:'#e11d48', cursor:'pointer', fontWeight:'600', fontSize:'0.8rem'}}>
+                    <FaRedo/> Retake
+                  </button>
                 </div>
               )}
               <canvas ref={canvasRef} style={{display: 'none'}} />
             </div>
 
-            {message && <div className="error-toast">{message}</div>}
-            
-            <button type="submit" className="neon-button" disabled={status === 'sending_otp'}>
-              {status === 'sending_otp' ? 'Processing...' : 'Verify & Register >'}
+            <button type="submit" className="btn-primary" disabled={isLoading}>
+              {isLoading ? 'Processing...' : 'Verify & Register'}
             </button>
-          </form>
+          </motion.form>
         ) : (
-          <form onSubmit={handleFinalRegister}>
-             <div style={{textAlign:'center', marginBottom:'20px'}}>
-               <h3>Admin Verification</h3>
-               <p style={{fontSize:'0.9rem', color:'#64748b'}}>OTP sent to Admins.</p>
+          <motion.form 
+            key="step2"
+            initial={{ x: 50, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 50, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            onSubmit={handleFinalRegister}
+          >
+             <div style={{textAlign:'center', marginBottom:'30px'}}>
+               <h3 style={{color: '#1e293b'}}>Admin Verification</h3>
+               <p style={{fontSize:'0.9rem', color:'#64748b'}}>An OTP has been sent to the administrator.</p>
              </div>
 
-             <div className="input-container" style={{borderColor: '#4f46e5'}}>
-                <div className="field-wrapper" style={{alignItems:'center'}}>
-                  <label>ENTER OTP</label>
-                  <input required type="number" value={otp} onChange={(e) => setOtp(e.target.value)} style={{textAlign:'center', fontSize:'1.5rem', letterSpacing:'5px'}} />
-                </div>
+             <div className="input-group">
+                <label style={{textAlign:'center'}}>ENTER 4-DIGIT OTP</label>
+                <input 
+                    className="styled-input otp-input" 
+                    required 
+                    type="number" 
+                    value={otp} 
+                    onChange={(e) => setOtp(e.target.value)} 
+                    placeholder="0000"
+                    autoFocus
+                />
              </div>
 
-             {message && <div className="error-toast">{message}</div>}
-
-             <button type="submit" className="neon-button" disabled={status === 'verifying'}>
-                {status === 'verifying' ? 'Registering...' : 'Confirm Registration'}
+             <button type="submit" className="btn-primary" disabled={isLoading}>
+                {isLoading ? 'Registering...' : 'Confirm Registration'}
              </button>
-             <button type="button" onClick={() => setStep(1)} style={{width:'100%', marginTop:'15px', background:'none', border:'none', color:'#64748b', cursor:'pointer'}}>Back</button>
-          </form>
+             
+             <button type="button" className="btn-secondary" onClick={() => setStep(1)}>
+                Back to Details
+             </button>
+          </motion.form>
         )}
+        </AnimatePresence>
       </div>
     </div>
   );
